@@ -49,14 +49,22 @@ metric_choices <- unique(network_data$Metric)
 # test<- network_data %>% 
 #   distinct(`Analysis Period`, `Day Type`)
 # Define UI for application that draws a histogram
-ui <- fluidPage(
-  theme = bslib::bs_theme(bootswatch = "flatly"),
+ui <- navbarPage("Pre/Post Network Comparison", collapsible = TRUE, inverse = FALSE,   theme = bslib::bs_theme(bootswatch = "flatly"),
+  tabPanel("Map",
+  fluidPage(
+
     # Application title
-    titlePanel("Pre/Post Network Comparison"),
 
     # Sidebar with a slider input for number of bins 
     sidebarLayout(
+      
+      
         sidebarPanel(
+          selectInput("project",
+                      "Project of Interest:",
+                      choices = "Lynnwood Link P2", 
+                      multiple = FALSE, 
+                      selected = "Lynnwood Link P2"),
             selectInput("metric",
                         "Metric to Display:",
                         choices = metric_choices, 
@@ -92,7 +100,7 @@ ui <- fluidPage(
           leaflet::leafletOutput("metric_map", height = "100vh")
         )
     )
-)
+)))
 
 server <- function(input, output) {
   
@@ -137,7 +145,7 @@ server <- function(input, output) {
                        src="remote", 
                        position = "bottomright",
                        offset.x = 30,
-                       offset.y = 75,
+                       offset.y = 100,
                        height = 30, 
                        width = 80) %>% 
       leaflet::addScaleBar(position = "topright")
