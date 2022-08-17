@@ -16,7 +16,25 @@ library(here)
 block_groups <- readRDS( here::here(  "input","block_groups.RDS"))
                             
 load(file =here::here( "input","route_and_block_group_equity_data.RDS"))
-                            
+
+proposed_network <- sf::read_sf("input/Lynnwood_Link_Phase_2_Proposal/planner_var_shape.shp") %>% 
+  rename(route_short_name = VAR_ROUTE, 
+         variant = VAR_IDENT, 
+         direction = VAR_DIREC, 
+         description = VAR_DESCR) %>% 
+  st_set_crs(2926) %>% 
+  st_transform(4326) %>% 
+  rmapshaper::ms_simplify(keep = .2)
+
+baseline_network <- sf::read_sf("input/Lynnwood_Link_Phase_2_Baseline/planner_var_shape.shp") %>% 
+  rename(route_short_name = VAR_ROUTE, 
+         variant = VAR_IDENT, 
+         direction = VAR_DIREC, 
+         description = VAR_DESCR)%>% 
+  st_set_crs(2926) %>% 
+  st_transform(4326)%>% 
+  rmapshaper::ms_simplify(keep = .2)
+
 network_data <- read_csv(here::here( "input","block_group_trips_and_capacity_summary.csv")) %>% 
          select(-c(Name:`Acs Year`)) %>% 
          pivot_longer(cols = !c(Geoid, `Analysis Period`, `Day Type`, `Routes in Geo Baseline`, 
@@ -48,23 +66,23 @@ metric_choices <- unique(network_data$Metric)
 # Sat/SUN
 # test<- network_data %>% 
 #   distinct(`Analysis Period`, `Day Type`)
-# Define UI for application that draws a histogram
-ui <- navbarPage("Pre/Post Network Comparison", collapsible = TRUE, inverse = FALSE,   theme = bslib::bs_theme(bootswatch = "flatly"),
-  tabPanel("Map",
+#UI #####
+ui <- navbarPage("Pre/Post Network Comparison", collapsible = TRUE,
+                 inverse = FALSE,   theme = bslib::bs_theme(bootswatch = "flatly"),
+ 
+                  tabPanel("Map",
   fluidPage(
 
     # Application title
 
     # Sidebar with a slider input for number of bins 
     sidebarLayout(
-      
-      
         sidebarPanel(
-          selectInput("project",
-                      "Project of Interest:",
-                      choices = "Lynnwood Link P2", 
-                      multiple = FALSE, 
-                      selected = "Lynnwood Link P2"),
+          # selectInput("project",
+          #             "Project of Interest:",
+          #             choices = "Lynnwood Link P2", 
+          #             multiple = FALSE, 
+          #             selected = "Lynnwood Link P2"),
             selectInput("metric",
                         "Metric to Display:",
                         choices = metric_choices, 
@@ -84,48 +102,101 @@ ui <- navbarPage("Pre/Post Network Comparison", collapsible = TRUE, inverse = FA
                     multiple = FALSE, 
                     selected = "AM"), 
        
+         selectInput("network",
+                    "Network to Display:",
+                    choices = c("Baseline", "Phase 2"), 
+                    multiple = FALSE, 
+                    selected = "Baseline"), 
+        
+        selectInput("routes",
+                    "Filter Routes:",
+                    choices = NULL, 
+                    multiple = TRUE),  
         selectInput("colors", "Color Scheme",
                     rownames(subset(brewer.pal.info, category %in% c("seq", "div"))), 
                     selected = "Spectral"
         ), 
         checkboxInput("legend", "Show legend", TRUE),
-        actionButton("recalc", "Update Map"), 
-        hr(), 
-        h6("This app shows the difference in vehicle trips and vehicle capacity for Lynnwood Link Phase 2. This tool is for planning purposes only and does not show final data. Please contact Melissa Gaughan with questions. Last updated 2022.08.11.")
-    
+        actionButton("recalc", "Update Map & Filters"), 
+       # actionButton("reset", "Clear Route Selection"),
+       
     ),
- 
-        # Show a plot of the generated distribution
+        # map plat
         mainPanel(
           leaflet::leafletOutput("metric_map", height = "100vh")
         )
     )
-)))
-
+)), 
+tabPanel("Notes", 
+         fluidPage(
+           mainPanel(
+             h6(textOutput("note" ))
+           ))
+))
+# SERVER#####
 server <- function(input, output) {
   
+  #handle route reactivity####
+  
+  #network selections
+ network<- reactive({
+    if (input$network == "baseline"){
+      network <-  baseline_network ##note, still need to load this data in
+    } else if(input$network == "Phase 2"){
+      network <- proposed_network
+    } else{
+      network <- baseline_network
+    }
+
+  })
+  
+  # update routes to correspond to network selected
+  observeEvent(network(), {
+    #req(input$network)
+    #freezeReactiveValue(input, "routes")
+    choices <- unique( network()$route_short_name)
+    updateSelectInput( inputId = "routes", choices = choices)
+  })
+  
+conditional <- function(condition, success){
+    if(condition) success else TRUE
+  }  
+  #handle route selections. Add in reset button?
+routes <- eventReactive(input$recalc,{
+  if (input$network == "Baseline"){
+     baseline_network %>% 
+      filter( conditional(isTruthy(input$routes), route_short_name %in% input$routes ))
+  } else if(input$network == "Phase 2"){
+     proposed_network %>% 
+      filter( conditional(isTruthy(input$routes),route_short_name %in% input$routes ))
+  } 
+  
+      
+  })
+  
+  # filter data for user input on metrics#####
   metric_data <- eventReactive(input$recalc, {
     if(input$metric %in% c("Percent Change in Capacity" ,"Percent Change in Trips" )){
     network_data %>% 
       filter(Metric == input$metric &
                `Analysis Period` == input$period &
                `Day Type` == input$day_type) %>% 
-      drop_na() %>% 
+     # drop_na() %>% 
         mutate(Value = Value*100)
     } else {
       network_data %>% 
         filter(Metric == input$metric &
                `Analysis Period` == input$period &
-               `Day Type` == input$day_type) %>% 
-        drop_na() 
+               `Day Type` == input$day_type) #%>% 
+        #drop_na() 
     }
      }, ignoreNULL = FALSE)
   
   metric_data_sf <- eventReactive(input$recalc,{
     block_groups %>% 
-      left_join(metric_data()) %>% 
-      drop_na(Value) %>% 
-      filter(Value != 0)
+      left_join(metric_data()) #%>% 
+     # drop_na(Value) %>% 
+     # filter(Value != 0)
   },  ignoreNULL = FALSE)
   
   colorpal <- reactive({
@@ -154,13 +225,13 @@ server <- function(input, output) {
   # Incremental changes to the map (in this case, replacing the
   # circles when a new color is chosen) should be performed in
   # an observer. Each independent set of things that can change
-  # should be managed in its own observer.
+  # should be managed in its own observer.   # Change Routes #####
   observeEvent(input$recalc, {
     pal <- colorpal()
     
-    leafletProxy("metric_map", data = metric_data_sf()) %>%
+    leafletProxy("metric_map") %>%
       clearShapes() %>%
-      addPolygons( weight = 2, opacity = 1,
+      addPolygons( data = metric_data_sf() , weight = 2, opacity = 1,
                    color = "white",
                    dashArray = "3",
                    fillOpacity = 0.7,
@@ -187,6 +258,19 @@ server <- function(input, output) {
         weight = 0.6, 
         group = "EPA Overlay"
       ) %>% 
+      addPolylines(
+        data = routes(), 
+        color = "black",
+        weight = 3 , 
+        
+        label = ~route_short_name,
+        popup = ~paste0("<br>Route: ", route_short_name,
+                        #"<br>Variant: ", variant, 
+                        #"<br>Direction: ", direction, 
+                        "<br>Description: ", description
+        )
+      ) %>% 
+      
       addLayersControl(
         overlayGroups = c( "EPA Overlay"),
         options = layersControlOptions(collapsed = FALSE)
@@ -195,6 +279,11 @@ server <- function(input, output) {
     
   } ,ignoreNULL = FALSE)
   
+
+  
+ 
+  
+  #recreate legend if needed ####
   observeEvent(input$recalc,{
     proxy <- leafletProxy("metric_map", data = metric_data_sf())
     
@@ -210,6 +299,9 @@ server <- function(input, output) {
     }
   }, ignoreNULL = FALSE)
   
+  output$note <- renderText("This app shows the difference in vehicle trips and vehicle capacity for Lynnwood Link Phase 2.
+This tool is for planning purposes only and does not show final data.
+Please contact Melissa Gaughan with questions. Last updated 2022.08.11.")
  
 }
 
