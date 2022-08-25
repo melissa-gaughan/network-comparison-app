@@ -4,7 +4,7 @@
 #
 # Find out more about building applications with Shiny here:
 #
-#    http://shiny.rstudio.com/
+#    https://github.com/IBM-DSE/Shiny-Examples-with-Blog/blob/master/1%20-%20Leaflet%20-%20Center%20Diverging%20Colors/app.R
 
 library(shiny)
 library(tidyverse)
@@ -13,10 +13,12 @@ library(leaflet)
 library(sf)
 library(rsconnect)
 library(here)
+# LOAD IN DATA ####
 block_groups <- readRDS( here::here(  "input","block_groups.RDS"))
                             
 load(file =here::here( "input","route_and_block_group_equity_data.RDS"))
 
+#route shapefiles ####
 proposed_network <- sf::read_sf("input/Lynnwood_Link_Phase_2_Proposal/planner_var_shape.shp") %>% 
   rename(route_short_name = VAR_ROUTE, 
          variant = VAR_IDENT, 
@@ -34,7 +36,7 @@ baseline_network <- sf::read_sf("input/Lynnwood_Link_Phase_2_Baseline/planner_va
   st_set_crs(2926) %>% 
   st_transform(4326)%>% 
   rmapshaper::ms_simplify(keep = .2)
-
+# block group metrics #####
 network_data <- read_csv(here::here( "input","block_group_trips_and_capacity_summary.csv")) %>% 
          select(-c(Name:`Acs Year`)) %>% 
          pivot_longer(cols = !c(Geoid, `Analysis Period`, `Day Type`, `Routes in Geo Baseline`, 
@@ -55,6 +57,7 @@ epa_hatch <- block_groups %>%
               mutate(col = 1) 
                             
 
+# UI Choices #####
 metro <- "https://upload.wikimedia.org/wikipedia/en/thumb/b/bf/King_County_Metro_logo.svg/1280px-King_County_Metro_logo.svg.png"
 
 
@@ -62,20 +65,17 @@ day_type_choices <- unique(network_data$`Day Type`)
 period_choices <- unique(network_data$`Analysis Period`)
 metric_choices <- unique(network_data$Metric)
 
-#there's a weird UI think because of the small periods not being in the data for 
-# Sat/SUN
-# test<- network_data %>% 
-#   distinct(`Analysis Period`, `Day Type`)
+network_choices <-  stringr::str_remove( list.files(here::here("input", "gtfs")), "_gtfs.zip")
+                                         
+                                         # look at folder, read in folder names, remove.zip from name
+
 #UI #####
 ui <- navbarPage("Pre/Post Network Comparison", collapsible = TRUE,
                  inverse = FALSE,   theme = bslib::bs_theme(bootswatch = "flatly"),
- 
+ # MAP UI #####
                   tabPanel("Map",
   fluidPage(
 
-    # Application title
-
-    # Sidebar with a slider input for number of bins 
     sidebarLayout(
         sidebarPanel(
           # selectInput("project",
@@ -127,16 +127,50 @@ ui <- navbarPage("Pre/Post Network Comparison", collapsible = TRUE,
         )
     )
 )), 
+#NOTES UI####
 tabPanel("Notes", 
          fluidPage(
            mainPanel(
              h6(textOutput("note" ))
            ))
-))
+),
+# HEADWAY AND TRIP TABLE UI
+tabPanel("Headways", 
+         fluidPage(
+           
+           sidebarLayout(
+             sidebarPanel(
+               selectInput("network_1",
+                           "First Service Change:",
+                           choices = network_choices,
+                           multiple = FALSE,
+                           selected = "213"),
+               selectInput("network_2",
+                           "Second Service Change:",
+                           choices = network_choices,
+                           multiple = FALSE,
+                           selected = "221"),
+               selectInput("table_contents",
+                           "Headways or Trips:",
+                           choices = c("Headways", "Trips"),
+                           multiple = FALSE,
+                           selected = "Headways")
+               ),
+        
+           mainPanel(
+             tabsetPanel(
+               tabPanel("First Service Change", h6(textOutput("note1" ))),
+               tabPanel("Second Service Change",  h6(textOutput("note2" ))),
+               tabPanel("Change Between Selected Networks",  h6(textOutput("note3" )))
+             )
+           )))
+),
+
+)
 # SERVER#####
 server <- function(input, output) {
-  
-  #handle route reactivity####
+  #MAP FUNCTIONS #####
+      #handle route reactivity####
   
   #network selections
  network<- reactive({
@@ -174,29 +208,29 @@ routes <- eventReactive(input$recalc,{
       
   })
   
-  # filter data for user input on metrics#####
+      #filter data for user input on metrics#####
   metric_data <- eventReactive(input$recalc, {
     if(input$metric %in% c("Percent Change in Capacity" ,"Percent Change in Trips" )){
     network_data %>% 
       filter(Metric == input$metric &
                `Analysis Period` == input$period &
                `Day Type` == input$day_type) %>% 
-     # drop_na() %>% 
+      drop_na() %>% 
         mutate(Value = Value*100)
     } else {
       network_data %>% 
         filter(Metric == input$metric &
                `Analysis Period` == input$period &
-               `Day Type` == input$day_type) #%>% 
-        #drop_na() 
+               `Day Type` == input$day_type) %>% 
+        drop_na() 
     }
      }, ignoreNULL = FALSE)
   
   metric_data_sf <- eventReactive(input$recalc,{
     block_groups %>% 
-      left_join(metric_data()) #%>% 
-     # drop_na(Value) %>% 
-     # filter(Value != 0)
+      left_join(metric_data()) %>% 
+      drop_na(Value) %>% 
+      filter(Value != 0)
   },  ignoreNULL = FALSE)
   
   colorpal <- reactive({
@@ -299,9 +333,36 @@ routes <- eventReactive(input$recalc,{
     }
   }, ignoreNULL = FALSE)
   
+  # NOTES SERVER #####
+  
   output$note <- renderText("This app shows the difference in vehicle trips and vehicle capacity for Lynnwood Link Phase 2.
 This tool is for planning purposes only and does not show final data.
 Please contact Melissa Gaughan with questions. Last updated 2022.08.11.")
+  
+ 
+  #TABLE FUNCTIONS #####  
+  
+  # Ok time for some dev work here. 
+  # If user input == headways, go to GTFS folder, grab specified GTFS 
+  #Calculate avg headways for weekdays, weekends by period
+  #display by route
+  
+  #If user is on change tab, use results from network 1 and 2 to find differences. 
+  # Routes that are not in baseline network get flagged as new. Rotues that are 
+  # not in second network get flagged as deleted. Both new/deleted routes sent to second table
+  
+  
+  
+  output$note1 <- renderText("note1")
+  
+  output$note2 <- renderText("note2")
+  
+  output$note3 <- renderText("note3")
+  
+
+  
+
+  
  
 }
 
