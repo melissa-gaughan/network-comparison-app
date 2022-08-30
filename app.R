@@ -6,6 +6,7 @@
 #
 #    https://github.com/IBM-DSE/Shiny-Examples-with-Blog/blob/master/1%20-%20Leaflet%20-%20Center%20Diverging%20Colors/app.R
 
+#NOTE Need to handle the centroid call outside of the reactive function
 library(shiny)
 library(tidyverse)
 library(RColorBrewer)
@@ -15,7 +16,7 @@ library(rsconnect)
 library(here)
 # LOAD IN DATA ####
 block_groups <- readRDS( here::here(  "input","block_groups.RDS"))
-                            
+block_group_centroids <- readRDS( here::here(  "input","block_group_centroids.RDS"))                            
 load(file =here::here( "input","route_and_block_group_equity_data.RDS"))
 
 #route shapefiles ####
@@ -134,7 +135,7 @@ tabPanel("Notes",
              h6(textOutput("note" ))
            ))
 ),
-# HEADWAY AND TRIP TABLE UI
+# HEADWAY AND TRIP TABLE UI ####
 tabPanel("Headways", 
          fluidPage(
            
@@ -225,12 +226,22 @@ routes <- eventReactive(input$recalc,{
         drop_na() 
     }
      }, ignoreNULL = FALSE)
+
+
+
   
   metric_data_sf <- eventReactive(input$recalc,{
     block_groups %>% 
       left_join(metric_data()) %>% 
       drop_na(Value) %>% 
       filter(Value != 0)
+  },  ignoreNULL = FALSE)
+  
+  
+  metric_data_labels <- eventReactive(input$recalc,{
+    block_group_centroids %>%
+      left_join(metric_data()) %>%
+      drop_na(Value)
   },  ignoreNULL = FALSE)
   
   colorpal <- reactive({
@@ -263,7 +274,7 @@ routes <- eventReactive(input$recalc,{
   observeEvent(input$recalc, {
     pal <- colorpal()
     
-    leafletProxy("metric_map") %>%
+   proxy <-  leafletProxy("metric_map") %>%
       clearShapes() %>%
       addPolygons( data = metric_data_sf() , weight = 2, opacity = 1,
                    color = "white",
@@ -274,12 +285,12 @@ routes <- eventReactive(input$recalc,{
                                color = "#666",
                                dashArray = "",
                                fillOpacity = 0.7,
-                               bringToFront = TRUE),
+                               bringToFront = FALSE),
                    label = ~Value,
-                   # labelOptions = labelOptions(
-                   #         style = list("font-weight" = "normal", padding = "3px 8px"),
-                   #         textsize = "15px",
-                   #         direction = "auto"),
+                   labelOptions = labelOptions(
+                           style = list("font-weight" = "normal", padding = "3px 8px"),
+                           textsize = "15px",
+                           direction = "auto"),
                  fillColor = ~pal(Value), 
                  popup = ~paste0(input$metric, ": ", Value, 
                                  "<br>Routes in Baseline Network: ", `Routes in Geo Baseline`,
@@ -304,18 +315,41 @@ routes <- eventReactive(input$recalc,{
                         "<br>Description: ", description
         )
       ) %>% 
-      
+       # addLabelOnlyMarkers(
+       #  data = metric_data_labels(),
+       #  label =  ~Value,
+       #  group = "Labels",
+       # labelOptions = labelOptions(noHide = TRUE, direction = 'top', textOnly = TRUE
+       #                            # minZoom = 0,
+       #                            # maxZoom = 8
+       #                            )) %>%
+      # 
       addLayersControl(
-        overlayGroups = c( "EPA Overlay"),
+        overlayGroups = c( "EPA Overlay", "Labels"),
         options = layersControlOptions(collapsed = FALSE)
       ) %>%
-      hideGroup("EPA Overlay")
+      hideGroup(c("EPA Overlay", "Labels"))
     
   } ,ignoreNULL = FALSE)
   
-
-  
- 
+# 
+#   observeEvent(
+#     eventExpr = input$map_zoom, {
+#       print(input$map_zoom)           # Display zoom level in the console
+#       leafletProxy(
+#         mapId = "metric_map", 
+#         session = session
+#       ) %>% 
+#         clearMarkers() %>%
+#         addLabelOnlyMarkers(
+#             data = metric_data_labels(),
+#            label =  if(isTruthy(input$map_zoom) & input$map_zoom < 6) ~Value,
+#             labelOptions = labelOptions(noHide = TRUE, direction = 'top', textOnly = TRUE)) 
+#          # label = if(input$map_zoom < 6) ~Value
+#         
+#   
+#     })
+#  
   
   #recreate legend if needed ####
   observeEvent(input$recalc,{
@@ -333,6 +367,21 @@ routes <- eventReactive(input$recalc,{
     }
   }, ignoreNULL = FALSE)
   
+  
+  observeEvent(input$recalc,{
+    proxy <- leafletProxy("metric_map", data = metric_data_sf())
+    
+    # Remove any existing legend, and only if the legend is
+    # enabled, create a new one.
+    leafem::addStaticLabels(map = proxy ,
+                            data =metric_data_sf(), 
+                            label = metric_data_sf()$Value, 
+                            group = "Labels")
+    
+  }, ignoreNULL = FALSE, 
+  ignoreInit = TRUE)
+ 
+    
   # NOTES SERVER #####
   
   output$note <- renderText("This app shows the difference in vehicle trips and vehicle capacity for Lynnwood Link Phase 2.
@@ -345,15 +394,28 @@ Please contact Melissa Gaughan with questions. Last updated 2022.08.11.")
   # Ok time for some dev work here. 
   # If user input == headways, go to GTFS folder, grab specified GTFS 
   #Calculate avg headways for weekdays, weekends by period
-  #display by route
+  #display by route, else calculate trips by time period
   
   #If user is on change tab, use results from network 1 and 2 to find differences. 
   # Routes that are not in baseline network get flagged as new. Rotues that are 
-  # not in second network get flagged as deleted. Both new/deleted routes sent to second table
+  # not in second network get flagged as deleted. Both new/deleted routes sent to second table on change tab
   
   
   
-  output$note1 <- renderText("note1")
+  output$network_1 <- eventReactive(input$table_contents, {
+    if (input$table_contents == "Headways" ){
+      # read file
+  
+      
+      #file_name <- paste0( input$network_1, "_gtfs.zip")
+      file_name <- paste0(213, "_gtfs.zip")
+      
+      gtfs_1 <- tidytransit::read_gtfs(here::here("input","gtfs", file_name))
+      
+      
+      #calculate headways
+    }
+  })
   
   output$note2 <- renderText("note2")
   
