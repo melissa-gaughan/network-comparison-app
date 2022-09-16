@@ -44,6 +44,10 @@ network_data <- read_csv(here::here( "input","block_group_trips_and_capacity_sum
          `Routes in Geo Proposed`), 
            names_to = "Metric", 
             values_to = "Value")
+
+
+network_data_details <- read_csv(here::here( "input","route_level_trips_and_capacity_summary.csv")) %>% 
+  mutate(across(.cols = -c(Geoid ,`Percent Change in Trips`), .fns = as.character))
                             
 block_group_need_scores<- block_group_need_scores %>% 
                              mutate(Geoid = as.numeric(geoid))
@@ -76,57 +80,74 @@ ui <- navbarPage("Pre/Post Network Comparison", collapsible = TRUE,
  # MAP UI #####
                   tabPanel("Map",
   fluidPage(
-
-    sidebarLayout(
-        sidebarPanel(
+    # tags$head(tags$style(HTML("
+    #     .selectize-input, .selectize-dropdown {
+    #       font-size: 75%;
+    #     }
+    #     "))),
+   # sidebarLayout(
+        #sidebarPanel( width = 3,
+                    #  tags$style(type='text/css', ".selectize-input { font-size: 10px; line-height: 10px; height: 10px; width: 200px;} .selectize-dropdown { font-size: 10px; line-height: 10px; height: 10px; width: 200px;}"),
           # selectInput("project",
           #             "Project of Interest:",
           #             choices = "Lynnwood Link P2", 
           #             multiple = FALSE, 
           #             selected = "Lynnwood Link P2"),
-            selectInput("metric",
-                        "Metric to Display:",
-                        choices = metric_choices, 
-                        multiple = FALSE, 
-                        selected = "Change in Capacity"),
-        
-        selectInput("day_type",
-                    "Day of Week",
-                    choices = day_type_choices, 
-                    multiple = FALSE, 
-                    selected = "weekday"
-                    ), 
-        
-        selectInput("period",
-                    "Day Period:",
-                    choices = period_choices, 
-                    multiple = FALSE, 
-                    selected = "AM"), 
-       
-         selectInput("network",
-                    "Network to Display:",
-                    choices = c("Baseline", "Phase 2"), 
-                    multiple = FALSE, 
-                    selected = "Baseline"), 
-        
-        selectInput("routes",
-                    "Filter Routes:",
-                    choices = NULL, 
-                    multiple = TRUE),  
-        selectInput("colors", "Color Scheme",
-                    rownames(subset(brewer.pal.info, category %in% c("seq", "div"))), 
-                    selected = "Spectral"
-        ), 
-        checkboxInput("legend", "Show legend", TRUE),
-        actionButton("recalc", "Update Map & Filters"), 
+          
        # actionButton("reset", "Clear Route Selection"),
        
-    ),
+  #  ),
         # map plat
-        mainPanel(
-          leaflet::leafletOutput("metric_map", height = "100vh")
+        mainPanel(width = 12,
+                  selectInput("metric",
+                              "Metric",
+                              choices = metric_choices, 
+                              multiple = FALSE, 
+                              selected = "Change in Trips"),
+                  
+                  selectInput("day_type",
+                              "Day",
+                              choices = day_type_choices, 
+                              multiple = FALSE, 
+                              selected = "week"
+                  ), 
+                  
+                  selectInput("period",
+                              "Period:",
+                              choices = period_choices, 
+                              multiple = FALSE, 
+                              selected = "week"), 
+                  
+                  sliderInput("metric_range", 
+                              label = "Filter Data Range", 
+                              min = -100, 
+                              max = 100,
+                              value = c(-100, 100)),
+                  
+                  selectInput("network",
+                              "Network",
+                              choices = c("Baseline", "Phase 2"), 
+                              multiple = FALSE, 
+                              selected = "Baseline"), 
+                  
+                  selectInput("routes",
+                              "Routes:",
+                              choices = NULL, 
+                              multiple = TRUE),  
+                  
+                  selectInput("colors", "Color Scheme",
+                              rownames(subset(brewer.pal.info, category %in% c("seq", "div"))), 
+                              selected = "Spectral"
+                  ), 
+                  checkboxInput("legend", "Show legend", TRUE),
+                  actionButton("recalc", "Update Map & Filters"),
+         #splitLayout(#cellWidths = c("70%", "30%"),
+                      leaflet::leafletOutput("metric_map", "100vh"),
+                      
+                     tableOutput("click_info" )##)
+          
         )
-    )
+    # )
 )), 
 #NOTES UI####
 tabPanel("Notes", 
@@ -176,7 +197,7 @@ server <- function(input, output) {
   #network selections
  network<- reactive({
     if (input$network == "baseline"){
-      network <-  baseline_network ##note, still need to load this data in
+      network <-  baseline_network 
     } else if(input$network == "Phase 2"){
       network <- proposed_network
     } else{
@@ -184,7 +205,8 @@ server <- function(input, output) {
     }
 
   })
-  
+ 
+ 
   # update routes to correspond to network selected
   observeEvent(network(), {
     #req(input$network)
@@ -208,6 +230,51 @@ routes <- eventReactive(input$recalc,{
   
       
   })
+
+metric<- reactive({
+  if(input$metric %in% c("Percent Change in Capacity" ,"Percent Change in Trips" )){
+    network_data %>% 
+      filter(Metric == input$metric &
+               `Analysis Period` == input$period &
+               `Day Type` == input$day_type) %>% 
+      drop_na() %>% 
+      mutate(Value = Value*100)
+  } else {
+    network_data %>% 
+      filter(Metric == input$metric &
+               `Analysis Period` == input$period &
+               `Day Type` == input$day_type) %>% 
+      drop_na() 
+  }
+})
+
+# update routes to correspond to network selected
+observe( {
+  #req(input$network)
+  #freezeReactiveValue(input, "routes")
+  
+  if(input$metric %in% c("Percent Change in Capacity" ,"Percent Change in Trips" )){
+   data <- network_data %>% 
+      filter(Metric == input$metric &
+               `Analysis Period` == input$period &
+               `Day Type` == input$day_type) %>% 
+      drop_na() %>% 
+      mutate(Value = Value*100)
+  } else {
+  data <-   network_data %>% 
+      filter(Metric == input$metric &
+               `Analysis Period` == input$period &
+               `Day Type` == input$day_type) %>% 
+      drop_na() 
+  }
+  min_range <- min(data$Value, na.rm = T)
+  max_range <- max(data$Value, na.rm = T)
+  updateSliderInput( inputId = "metric_range",
+                     min =min_range, 
+                     max = max_range, 
+                     value = c(min_range, max_range))
+})
+
   
       #filter data for user input on metrics#####
   metric_data <- eventReactive(input$recalc, {
@@ -217,13 +284,17 @@ routes <- eventReactive(input$recalc,{
                `Analysis Period` == input$period &
                `Day Type` == input$day_type) %>% 
       drop_na() %>% 
-        mutate(Value = Value*100)
+        mutate(Value = Value*100) %>% 
+        filter( Value >= input$metric_range[1] &
+                  Value <= input$metric_range[2] )
     } else {
       network_data %>% 
         filter(Metric == input$metric &
                `Analysis Period` == input$period &
                `Day Type` == input$day_type) %>% 
-        drop_na() 
+        drop_na() %>% 
+        filter( Value >= input$metric_range[1] &
+                  Value <= input$metric_range[2])
     }
      }, ignoreNULL = FALSE)
 
@@ -243,12 +314,45 @@ routes <- eventReactive(input$recalc,{
       left_join(metric_data()) %>%
       drop_na(Value)
   },  ignoreNULL = FALSE)
+
+rv_location <- reactiveValues(id=NULL,lat=NULL,lng=NULL)
+
+observeEvent(input$metric_map_shape_click, {
+  map_land_shape_click_info <- input$metric_map_shape_click
+  # map_land_click_info <- input$map_land_click
+  
+  rv_location$id <-  map_land_shape_click_info$id #str_split_fixed(map_land_shape_click_info$id,'\\|',2)[2] # take the second part which is county name
+  # rv_location$lat <- round(map_land_click_info$lat,4)
+   #rv_location$lng <- round(map_land_click_info$lng,4)
+})
+
+
+metric_data_detail <- eventReactive(input$metric_map_shape_click, {
+  network_data_details %>% 
+    filter(Geoid== input$metric_map_shape_click$id &
+             `Analysis Period` == input$period &
+             `Day Type` == input$day_type  ) %>% 
+    select(Route, 
+           `Trips per Rte Baseline`, 
+           `Trips per Rte Proposed`, 
+           `Change in Trips`, 
+           `Percent Change in Trips`) %>% 
+    arrange(`Change in Trips`)
+  
+  
+})
+
+output$click_info <- renderTable(metric_data_detail())
+
+  
+  #network selections
+
   
   colorpal <- reactive({
     colorBin(input$colors, metric_data_sf()$Value)
   })
 
-  
+  # Map reactives ####
   output$metric_map <- renderLeaflet({
     # Use leaflet() here, and only include aspects of the map that
     # won't need to change dynamically (at least, not unless the
@@ -264,7 +368,11 @@ routes <- eventReactive(input$recalc,{
                        offset.y = 100,
                        height = 30, 
                        width = 80) %>% 
-      leaflet::addScaleBar(position = "topright")
+      leaflet::addScaleBar(position = "topright")  %>% 
+      addLayersControl(
+        overlayGroups = c( "EPA Overlay", "Labels", "Routes"),
+        options = layersControlOptions(collapsed = FALSE)
+      )
   })
   
   # Incremental changes to the map (in this case, replacing the
@@ -276,9 +384,11 @@ routes <- eventReactive(input$recalc,{
     
    proxy <-  leafletProxy("metric_map") %>%
       clearShapes() %>%
+     clearGroup("Labels") %>% 
       addPolygons( data = metric_data_sf() , weight = 2, opacity = 1,
                    color = "white",
                    dashArray = "3",
+                   layerId = metric_data_sf()$Geoid,
                    fillOpacity = 0.7,
                    highlightOptions = highlightOptions(
                                weight = 5,
@@ -307,49 +417,25 @@ routes <- eventReactive(input$recalc,{
         data = routes(), 
         color = "black",
         weight = 3 , 
-        
+        group = "Routes",
         label = ~route_short_name,
         popup = ~paste0("<br>Route: ", route_short_name,
-                        #"<br>Variant: ", variant, 
-                        #"<br>Direction: ", direction, 
-                        "<br>Description: ", description
-        )
-      ) %>% 
-       # addLabelOnlyMarkers(
-       #  data = metric_data_labels(),
-       #  label =  ~Value,
-       #  group = "Labels",
-       # labelOptions = labelOptions(noHide = TRUE, direction = 'top', textOnly = TRUE
-       #                            # minZoom = 0,
-       #                            # maxZoom = 8
-       #                            )) %>%
-      # 
+                       
+                        "<br>Description: ", description  ) ) %>% 
+     leafem::addStaticLabels(
+                                                       data =metric_data_sf(),
+                                                       label = metric_data_sf()$Value,
+                                                       group = "Labels") %>% 
       addLayersControl(
-        overlayGroups = c( "EPA Overlay", "Labels"),
+        overlayGroups = c( "EPA Overlay", "Labels", "Routes"),
         options = layersControlOptions(collapsed = FALSE)
       ) %>%
-      hideGroup(c("EPA Overlay", "Labels"))
+    
+      hideGroup(c("EPA Overlay", "Routes"))
     
   } ,ignoreNULL = FALSE)
   
-# 
-#   observeEvent(
-#     eventExpr = input$map_zoom, {
-#       print(input$map_zoom)           # Display zoom level in the console
-#       leafletProxy(
-#         mapId = "metric_map", 
-#         session = session
-#       ) %>% 
-#         clearMarkers() %>%
-#         addLabelOnlyMarkers(
-#             data = metric_data_labels(),
-#            label =  if(isTruthy(input$map_zoom) & input$map_zoom < 6) ~Value,
-#             labelOptions = labelOptions(noHide = TRUE, direction = 'top', textOnly = TRUE)) 
-#          # label = if(input$map_zoom < 6) ~Value
-#         
-#   
-#     })
-#  
+
   
   #recreate legend if needed ####
   observeEvent(input$recalc,{
@@ -367,19 +453,26 @@ routes <- eventReactive(input$recalc,{
     }
   }, ignoreNULL = FALSE)
   
+  #moved the lables in to the main map function. 
+  #It seems to resolve the issue of disappearing labels on reinitiation
   
-  observeEvent(input$recalc,{
-    proxy <- leafletProxy("metric_map", data = metric_data_sf())
-    
-    # Remove any existing legend, and only if the legend is
-    # enabled, create a new one.
-    leafem::addStaticLabels(map = proxy ,
-                            data =metric_data_sf(), 
-                            label = metric_data_sf()$Value, 
-                            group = "Labels")
-    
-  }, ignoreNULL = FALSE, 
-  ignoreInit = TRUE)
+  # observeEvent(input$recalc,{
+  #   proxy <- leafletProxy("metric_map", data = metric_data_sf())
+  #   
+  #   # Remove any existing legend, and only if the legend is
+  #   # enabled, create a new one.
+  #   proxy %>% clearControls()
+  #   if (input$legend ) {
+  #     pal <- colorpal()
+  #     proxy %>%
+  #   
+  #   leafem::addStaticLabels(map = proxy ,
+  #                           data =metric_data_sf(), 
+  #                           label = metric_data_sf()$Value, 
+  #                           group = "Labels")
+  #   
+  # }, ignoreNULL = FALSE, 
+  # ignoreInit = TRUE)
  
     
   # NOTES SERVER #####
@@ -400,7 +493,16 @@ Please contact Melissa Gaughan with questions. Last updated 2022.08.11.")
   # Routes that are not in baseline network get flagged as new. Rotues that are 
   # not in second network get flagged as deleted. Both new/deleted routes sent to second table on change tab
   
-  
+
+ 
+  # 
+  # output$click_info <- renderText({  
+  #   location_info <- reactiveValuesToList(rv_location)
+  #   
+  #   HTML(paste(h3(rv_location$id)))
+  #   })
+    
+   
   
   output$network_1 <- eventReactive(input$table_contents, {
     if (input$table_contents == "Headways" ){
