@@ -8,6 +8,8 @@
 
 #NOTE Need to handle the centroid call outside of the reactive function
 library(shiny)
+library(shinydashboard)
+#library(shinydashboardPlus)
 library(tidyverse)
 library(RColorBrewer)
 library(leaflet)
@@ -75,119 +77,121 @@ network_choices <-  stringr::str_remove( list.files(here::here("input", "gtfs"))
                                          # look at folder, read in folder names, remove.zip from name
 
 #UI #####
-ui <- navbarPage("Pre/Post Network Comparison", collapsible = TRUE,
-                 inverse = FALSE,   theme = bslib::bs_theme(bootswatch = "flatly"),
- # MAP UI #####
-                  tabPanel("Map",
-  fluidPage(
-    # tags$head(tags$style(HTML("
-    #     .selectize-input, .selectize-dropdown {
-    #       font-size: 75%;
-    #     }
-    #     "))),
-   # sidebarLayout(
-        #sidebarPanel( width = 3,
-                    #  tags$style(type='text/css', ".selectize-input { font-size: 10px; line-height: 10px; height: 10px; width: 200px;} .selectize-dropdown { font-size: 10px; line-height: 10px; height: 10px; width: 200px;}"),
-          # selectInput("project",
-          #             "Project of Interest:",
-          #             choices = "Lynnwood Link P2", 
-          #             multiple = FALSE, 
-          #             selected = "Lynnwood Link P2"),
-          
-       # actionButton("reset", "Clear Route Selection"),
-       
-  #  ),
-        # map plat
-        mainPanel(width = 12,
-                  selectInput("metric",
-                              "Metric",
-                              choices = metric_choices, 
-                              multiple = FALSE, 
-                              selected = "Change in Trips"),
-                  
-                  selectInput("day_type",
-                              "Day",
-                              choices = day_type_choices, 
-                              multiple = FALSE, 
-                              selected = "week"
-                  ), 
-                  
-                  selectInput("period",
-                              "Period:",
-                              choices = period_choices, 
-                              multiple = FALSE, 
-                              selected = "week"), 
-                  
-                  sliderInput("metric_range", 
-                              label = "Filter Data Range", 
-                              min = -100, 
-                              max = 100,
-                              value = c(-100, 100)),
-                  
-                  selectInput("network",
-                              "Network",
-                              choices = c("Baseline", "Phase 2"), 
-                              multiple = FALSE, 
-                              selected = "Baseline"), 
-                  
-                  selectInput("routes",
-                              "Routes:",
-                              choices = NULL, 
-                              multiple = TRUE),  
-                  
-                  selectInput("colors", "Color Scheme",
-                              rownames(subset(brewer.pal.info, category %in% c("seq", "div"))), 
-                              selected = "Spectral"
-                  ), 
-                  checkboxInput("legend", "Show legend", TRUE),
-                  actionButton("recalc", "Update Map & Filters"),
-         #splitLayout(#cellWidths = c("70%", "30%"),
-                      leaflet::leafletOutput("metric_map", "100vh"),
-                      
-                     tableOutput("click_info" )##)
-          
-        )
-    # )
-)), 
-#NOTES UI####
-tabPanel("Notes", 
-         fluidPage(
-           mainPanel(
-             h6(textOutput("note" ))
-           ))
-),
-# HEADWAY AND TRIP TABLE UI ####
-tabPanel("Headways", 
-         fluidPage(
+body <- dashboardBody(
+  fluidRow(
+  column(width = 6,
+         box(title = "Metric Filters", width = NULL, solidHeader = TRUE,
+             collapsible = T,
+           selectInput("metric",
+                       "Metric",
+                       choices = metric_choices, 
+                       multiple = FALSE, 
+                       selected = "Change in Trips"),
            
-           sidebarLayout(
-             sidebarPanel(
-               selectInput("network_1",
-                           "First Service Change:",
-                           choices = network_choices,
-                           multiple = FALSE,
-                           selected = "213"),
-               selectInput("network_2",
-                           "Second Service Change:",
-                           choices = network_choices,
-                           multiple = FALSE,
-                           selected = "221"),
-               selectInput("table_contents",
-                           "Headways or Trips:",
-                           choices = c("Headways", "Trips"),
-                           multiple = FALSE,
-                           selected = "Headways")
-               ),
-        
-           mainPanel(
-             tabsetPanel(
-               tabPanel("First Service Change", h6(textOutput("note1" ))),
-               tabPanel("Second Service Change",  h6(textOutput("note2" ))),
-               tabPanel("Change Between Selected Networks",  h6(textOutput("note3" )))
-             )
-           )))
-),
+           selectInput("day_type",
+                       "Day",
+                       choices = day_type_choices, 
+                       multiple = FALSE, 
+                       selected = "week"
+           ),
+           selectInput("period",
+                       "Period",
+                       choices = NULL, 
+                       multiple = FALSE)
+         )
+         ),
+ 
+  column(width = 6,
+   box( title = "Route Filters", width = NULL, solidHeader = TRUE,     collapsible = T,
+        selectInput("network",
+                "Network",
+                choices = c("Baseline", "Phase 2"), 
+                multiple = FALSE, 
+                selected = "Baseline"), 
+    
+    selectInput("routes",
+                "Routes",
+                choices = NULL, 
+                multiple = TRUE)
+   )
+    ),  
+  #column(width = 4,
+  ),
+  
+  #  fluidRow(
+  column(width = 12,  
+         box(width = NULL, solidHeader = TRUE,
+                      leaflet::leafletOutput("metric_map"),
+                      
+                     tableOutput("click_info" )))##)
+          
+        #)
+)
+    # )
+#), 
+#NOTES UI####
+# tabPanel("Notes", 
+#          fluidPage(
+#            mainPanel(
+#              h6(textOutput("note" ))
+#            ))
+# ),
+# # HEADWAY AND TRIP TABLE UI ####
+# tabPanel("Headways", 
+#          fluidPage(
+#            
+#            sidebarLayout(
+#              sidebarPanel(
+#                selectInput("network_1",
+#                            "First Service Change:",
+#                            choices = network_choices,
+#                            multiple = FALSE,
+#                            selected = "213"),
+#                selectInput("network_2",
+#                            "Second Service Change:",
+#                            choices = network_choices,
+#                            multiple = FALSE,
+#                            selected = "221"),
+#                selectInput("table_contents",
+#                            "Headways or Trips:",
+#                            choices = c("Headways", "Trips"),
+#                            multiple = FALSE,
+#                            selected = "Headways")
+#                ),
+#         
+#            mainPanel(
+#              tabsetPanel(
+#                tabPanel("First Service Change", h6(textOutput("note1" ))),
+#                tabPanel("Second Service Change",  h6(textOutput("note2" ))),
+#                tabPanel("Change Between Selected Networks",  h6(textOutput("note3" )))
+#              )
+#            )))
+# ),
+# 
+# )
 
+ui <- dashboardPage(
+  dashboardHeader(title = "Network Comparison App"),
+ dashboardSidebar(box( title = "Execute Map", width = NULL, 
+                       background= 'black', 
+                       solidHeader = FALSE,     collapsible = T,
+                       sliderInput("metric_range", 
+                                   label = "Filter Data Range", 
+                                   min = -100, 
+                                   max = 100,
+                                   value = c(-100, 100)),
+                       selectInput("colors", "Color Scheme",
+                                   rownames(subset(brewer.pal.info, category %in% c("seq", "div"))), 
+                                   selected = "Spectral"
+                       ), 
+                       selectInput("color_order", "Reverse Colors",
+                                  choices = c("Yes", "No"),
+                                  multiple = FALSE,
+                                  selected = "No"
+                       ),
+                       checkboxInput("legend", "Show legend", TRUE),
+                       actionButton("recalc", "Update Map & Filters"))),
+  body
 )
 # SERVER#####
 server <- function(input, output) {
@@ -205,7 +209,7 @@ server <- function(input, output) {
     }
 
   })
- 
+
  
   # update routes to correspond to network selected
   observeEvent(network(), {
@@ -214,6 +218,35 @@ server <- function(input, output) {
     choices <- unique( network()$route_short_name)
     updateSelectInput( inputId = "routes", choices = choices)
   })
+  
+  
+
+  
+  
+  #handle period/day combos ####
+  
+  period_reactive<- reactive({
+    if (input$day_type == "week"){
+       "week" 
+    } else if(input$day_type == "weekday"){
+       c("weekday" , "AM", "MID", "PM", "XEV")
+    } else if(input$day_type == "saturday"){
+      c("saturday")
+    }  else if(input$day_type == "sunday"){
+      c("sunday")
+    } else{
+        ""
+    }
+    
+  })
+  
+  observeEvent(period_reactive(), {
+    #req(input$network)
+    #freezeReactiveValue(input, "routes")
+    choices <- unique( period_reactive())
+    updateSelectInput( inputId = "period", choices = choices)
+  })
+  
   
 conditional <- function(condition, success){
     if(condition) success else TRUE
@@ -349,7 +382,11 @@ output$click_info <- renderTable(metric_data_detail())
 
   
   colorpal <- reactive({
-    colorBin(input$colors, metric_data_sf()$Value)
+    if(input$color_order == "Yes"){
+    colorBin(input$colors, metric_data_sf()$Value, reverse = T)
+    } else{
+      colorBin(input$colors, metric_data_sf()$Value, reverse = F)
+    }
   })
 
   # Map reactives ####

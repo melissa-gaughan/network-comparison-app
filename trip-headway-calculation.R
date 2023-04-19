@@ -1,6 +1,6 @@
 create_trips_headways_table <- function( day_type){ 
 
-  gtfs <- gtfs_1
+gtfs <- gtfs_1
   
   service_days <- gtfs$calendar %>% 
     # Make sure service IDs are actually in use in the trip tables
@@ -10,7 +10,6 @@ create_trips_headways_table <- function( day_type){
                             ifelse(sunday == 1, 'sun', 'wkd')))
 
 
-  
   trips_schedule <- gtfs$trips %>% 
     #filter(route_id == "223-1989") %>% 
     left_join( gtfs$stop_times) %>%

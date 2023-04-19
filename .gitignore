@@ -20,6 +20,12 @@
 # RStudio files
 .Rproj.user/
 
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.Rproj
+
 # produced vignettes
 vignettes/*.html
 vignettes/*.pdf
@@ -37,3 +43,10 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+#input files
+input/
+
+#files for connecting to shiny.io
+
+rsconnect/
