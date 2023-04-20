@@ -10,7 +10,7 @@
 library(shiny)
 library(shinydashboard)
 #library(shinydashboardPlus)
-library(tidyverse)
+library(tidyverse) %>% 
 library(RColorBrewer)
 library(leaflet)
 library(sf)
