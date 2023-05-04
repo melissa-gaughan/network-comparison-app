@@ -10,69 +10,33 @@
 library(shiny)
 library(shinydashboard)
 #library(shinydashboardPlus)
-library(tidyverse) %>% 
+library(tidyverse) 
 library(RColorBrewer)
 library(leaflet)
 library(sf)
 library(rsconnect)
 library(here)
 # LOAD IN DATA ####
-block_groups <- readRDS( here::here(  "input","block_groups.RDS"))
-block_group_centroids <- readRDS( here::here(  "input","block_group_centroids.RDS"))                            
-load(file =here::here( "input","route_and_block_group_equity_data.RDS"))
-
-#route shapefiles ####
-proposed_network <- sf::read_sf("input/Lynnwood_Link_Phase_2_Proposal/planner_var_shape.shp") %>% 
-  rename(route_short_name = VAR_ROUTE, 
-         variant = VAR_IDENT, 
-         direction = VAR_DIREC, 
-         description = VAR_DESCR) %>% 
-  st_set_crs(2926) %>% 
-  st_transform(4326) %>% 
-  rmapshaper::ms_simplify(keep = .2)
-
-baseline_network <- sf::read_sf("input/Lynnwood_Link_Phase_2_Baseline/planner_var_shape.shp") %>% 
-  rename(route_short_name = VAR_ROUTE, 
-         variant = VAR_IDENT, 
-         direction = VAR_DIREC, 
-         description = VAR_DESCR)%>% 
-  st_set_crs(2926) %>% 
-  st_transform(4326)%>% 
-  rmapshaper::ms_simplify(keep = .2)
-# block group metrics #####
-network_data <- read_csv(here::here( "input","block_group_trips_and_capacity_summary.csv")) %>% 
-         select(-c(Name:`Acs Year`)) %>% 
-         pivot_longer(cols = !c(Geoid, `Analysis Period`, `Day Type`, `Routes in Geo Baseline`, 
-         `Routes in Geo Proposed`), 
-           names_to = "Metric", 
-            values_to = "Value")
+ 
+files_list <- list.files(here::here("input", "r-objects"), full.names = T)
+files_short_names <- list.files(here::here("input", "r-objects"), full.names = F)
+file_names <-  gsub(pattern = "\\.RDS$", replacement = "", x = basename(files_short_names))
 
 
-network_data_details <- read_csv(here::here( "input","route_level_trips_and_capacity_summary.csv")) %>% 
-  mutate(across(.cols = -c(Geoid ,`Percent Change in Trips`), .fns = as.character))
-                            
-block_group_need_scores<- block_group_need_scores %>% 
-                             mutate(Geoid = as.numeric(geoid))
-                            
-epa_hatch <- block_groups %>%
-             left_join(block_group_need_scores) %>% 
-               mutate(equity_priority_area = ifelse(final_score >= 4, TRUE, FALSE)) %>%
-             filter(equity_priority_area) %>% # filter for tracts that I want to receive a cross-hatch
-            # sample_n(40) %>%
-            HatchedPolygons::hatched.SpatialPolygons(density = 500, angle = 45) %>%
-              st_set_crs(4326) %>%
-              mutate(col = 1) 
+files <- map(files_list, readRDS)
+
+names(files) <- file_names
                             
 
 # UI Choices #####
 metro <- "https://upload.wikimedia.org/wikipedia/en/thumb/b/bf/King_County_Metro_logo.svg/1280px-King_County_Metro_logo.svg.png"
 
 
-day_type_choices <- unique(network_data$`Day Type`)
-period_choices <- unique(network_data$`Analysis Period`)
-metric_choices <- unique(network_data$Metric)
+day_type_choices <- unique(files$network_data$`Day Type`)
+period_choices <- unique(files$network_data$`Analysis Period`)
+metric_choices <- unique(files$network_data$Metric)
 
-network_choices <-  stringr::str_remove( list.files(here::here("input", "gtfs")), "_gtfs.zip")
+network_choices <-  c("Baseline", "Phase 2")
                                          
                                          # look at folder, read in folder names, remove.zip from name
 
@@ -114,7 +78,7 @@ body <- dashboardBody(
                 choices = NULL, 
                 multiple = TRUE)
    )
-    ),  
+    ) #,  
   #column(width = 4,
   ),
   
@@ -201,11 +165,11 @@ server <- function(input, output) {
   #network selections
  network<- reactive({
     if (input$network == "baseline"){
-      network <-  baseline_network 
+      network <-  files$baseline_network 
     } else if(input$network == "Phase 2"){
-      network <- proposed_network
+      network <- files$proposed_network
     } else{
-      network <- baseline_network
+      network <- files$baseline_network
     }
 
   })
@@ -215,7 +179,7 @@ server <- function(input, output) {
   observeEvent(network(), {
     #req(input$network)
     #freezeReactiveValue(input, "routes")
-    choices <- unique( network()$route_short_name)
+    choices <- unique(network()$route_short_name)
     updateSelectInput( inputId = "routes", choices = choices)
   })
   
@@ -253,27 +217,35 @@ conditional <- function(condition, success){
   }  
   #handle route selections. Add in reset button?
 routes <- eventReactive(input$recalc,{
+  req(input$routes)
   if (input$network == "Baseline"){
-     baseline_network %>% 
-      filter( conditional(isTruthy(input$routes), route_short_name %in% input$routes ))
+    files$baseline_network  %>% 
+      filter( conditional(isTruthy(input$routes), route_short_name %in% input$routes )) %>% 
+      sf::st_as_sf()
   } else if(input$network == "Phase 2"){
-     proposed_network %>% 
-      filter( conditional(isTruthy(input$routes),route_short_name %in% input$routes ))
+    files$proposed_network %>% 
+      filter( conditional(isTruthy(input$routes),route_short_name %in% input$routes ))%>% 
+      sf::st_as_sf()
   } 
   
       
   })
 
+epa_hatch_reactive <- reactive({
+  epa <- files$epa_hatch %>% 
+    sf::st_as_sf()
+})
+
 metric<- reactive({
   if(input$metric %in% c("Percent Change in Capacity" ,"Percent Change in Trips" )){
-    network_data %>% 
+    files$network_data %>% 
       filter(Metric == input$metric &
                `Analysis Period` == input$period &
                `Day Type` == input$day_type) %>% 
       drop_na() %>% 
       mutate(Value = Value*100)
   } else {
-    network_data %>% 
+    files$network_data %>% 
       filter(Metric == input$metric &
                `Analysis Period` == input$period &
                `Day Type` == input$day_type) %>% 
@@ -287,14 +259,14 @@ observe( {
   #freezeReactiveValue(input, "routes")
   
   if(input$metric %in% c("Percent Change in Capacity" ,"Percent Change in Trips" )){
-   data <- network_data %>% 
+   data <- files$network_data %>% 
       filter(Metric == input$metric &
                `Analysis Period` == input$period &
                `Day Type` == input$day_type) %>% 
       drop_na() %>% 
       mutate(Value = Value*100)
   } else {
-  data <-   network_data %>% 
+  data <-   files$network_data %>% 
       filter(Metric == input$metric &
                `Analysis Period` == input$period &
                `Day Type` == input$day_type) %>% 
@@ -307,21 +279,26 @@ observe( {
                      max = max_range, 
                      value = c(min_range, max_range))
 })
-
+#  input <- list()
+# 
+# input$metric <- "Percent Change in Capacity"
+# input$period <- "week"
+# input$day_type <- "week"
   
       #filter data for user input on metrics#####
   metric_data <- eventReactive(input$recalc, {
     if(input$metric %in% c("Percent Change in Capacity" ,"Percent Change in Trips" )){
-    network_data %>% 
+     network_data <-  files$network_data %>% 
       filter(Metric == input$metric &
                `Analysis Period` == input$period &
-               `Day Type` == input$day_type) %>% 
-      drop_na() %>% 
+               `Day Type` == input$day_type 
+               ) %>% 
+      drop_na()  %>% 
         mutate(Value = Value*100) %>% 
         filter( Value >= input$metric_range[1] &
                   Value <= input$metric_range[2] )
     } else {
-      network_data %>% 
+      network_data <- files$network_data %>% 
         filter(Metric == input$metric &
                `Analysis Period` == input$period &
                `Day Type` == input$day_type) %>% 
@@ -335,17 +312,19 @@ observe( {
 
   
   metric_data_sf <- eventReactive(input$recalc,{
-    block_groups %>% 
+    block_groups <- files$block_groups %>% 
       left_join(metric_data()) %>% 
       drop_na(Value) %>% 
-      filter(Value != 0)
+      filter(Value != 0) %>% 
+      sf::st_as_sf() #added because R was making this a table not a spatial object
   },  ignoreNULL = FALSE)
   
   
   metric_data_labels <- eventReactive(input$recalc,{
-    block_group_centroids %>%
+    files$block_group_centroids %>%
       left_join(metric_data()) %>%
-      drop_na(Value)
+      drop_na(Value) %>% 
+      sf::st_as_sf() #added because R was making this a table not a spatial object
   },  ignoreNULL = FALSE)
 
 rv_location <- reactiveValues(id=NULL,lat=NULL,lng=NULL)
@@ -361,7 +340,7 @@ observeEvent(input$metric_map_shape_click, {
 
 
 metric_data_detail <- eventReactive(input$metric_map_shape_click, {
-  network_data_details %>% 
+  files$network_data_details %>% 
     filter(Geoid== input$metric_map_shape_click$id &
              `Analysis Period` == input$period &
              `Day Type` == input$day_type  ) %>% 
@@ -422,52 +401,53 @@ output$click_info <- renderTable(metric_data_detail())
    proxy <-  leafletProxy("metric_map") %>%
       clearShapes() %>%
      clearGroup("Labels") %>% 
-      addPolygons( data = metric_data_sf() , weight = 2, opacity = 1,
+      addPolygons( data = metric_data_sf() , 
+                   weight = 2, opacity = 1,
                    color = "white",
                    dashArray = "3",
                    layerId = metric_data_sf()$Geoid,
-                   fillOpacity = 0.7,
+                   fillOpacity = 0.7 ,
                    highlightOptions = highlightOptions(
                                weight = 5,
                                color = "#666",
                                dashArray = "",
                                fillOpacity = 0.7,
-                               bringToFront = FALSE),
-                   label = ~Value,
+                               bringToFront = FALSE) ,   #)#,
+                  label = ~Value,
                    labelOptions = labelOptions(
                            style = list("font-weight" = "normal", padding = "3px 8px"),
                            textsize = "15px",
                            direction = "auto"),
                  fillColor = ~pal(Value), 
-                 popup = ~paste0(input$metric, ": ", Value, 
+                 popup = ~paste0(input$metric, ": ", Value,
                                  "<br>Routes in Baseline Network: ", `Routes in Geo Baseline`,
                                  "<br>Routes in Proposed Network: ", `Routes in Geo Proposed`
                                  )
-      ) %>% 
+      ) %>%
       addPolylines(
-        data = epa_hatch, 
+        data = epa_hatch_reactive(),
         color = "black",
-        weight = 0.6, 
+        weight = 0.6,
         group = "EPA Overlay"
-      ) %>% 
+      ) %>%
       addPolylines(
-        data = routes(), 
+        data = routes(),
         color = "black",
-        weight = 3 , 
+        weight = 3 ,
         group = "Routes",
         label = ~route_short_name,
         popup = ~paste0("<br>Route: ", route_short_name,
-                       
-                        "<br>Description: ", description  ) ) %>% 
+
+                        "<br>Description: ", description  ) ) %>%
      leafem::addStaticLabels(
                                                        data =metric_data_sf(),
                                                        label = metric_data_sf()$Value,
-                                                       group = "Labels") %>% 
+                                                       group = "Labels") %>%
       addLayersControl(
         overlayGroups = c( "EPA Overlay", "Labels", "Routes"),
         options = layersControlOptions(collapsed = FALSE)
       ) %>%
-    
+
       hideGroup(c("EPA Overlay", "Routes"))
     
   } ,ignoreNULL = FALSE)
@@ -477,14 +457,14 @@ output$click_info <- renderTable(metric_data_detail())
   #recreate legend if needed ####
   observeEvent(input$recalc,{
     proxy <- leafletProxy("metric_map", data = metric_data_sf())
-    
+
     # Remove any existing legend, and only if the legend is
     # enabled, create a new one.
     proxy %>% clearControls()
     if (input$legend ) {
       pal <- colorpal()
       proxy %>% addLegend(position = "topright",
-                          pal = pal, values = ~metric_data_sf()$Value, 
+                          pal = pal, values = ~metric_data_sf()$Value,
                           title = input$metric
       )
     }
