@@ -16,6 +16,7 @@ library(leaflet)
 library(sf)
 library(rsconnect)
 library(here)
+library(leafem)
 # LOAD IN DATA ####
  
 files_list <- list.files(here::here("input", "r-objects"), full.names = T)
@@ -66,7 +67,10 @@ body <- dashboardBody(
          ),
  
   column(width = 6,
-   box( title = "Route Filters", width = NULL, solidHeader = TRUE,     collapsible = T,
+   box( title = "Route Filters",
+        width = NULL,
+        solidHeader = TRUE,  
+        collapsible = T,
         selectInput("network",
                 "Network",
                 choices = c("Baseline", "Phase 2"), 
@@ -144,6 +148,9 @@ ui <- dashboardPage(
                                    min = -100, 
                                    max = 100,
                                    value = c(-100, 100)),
+                       selectInput("geography", "Geography", 
+                                   choices = c("Block Groups", "1/4 Mile Hex", "1/8 Mile Hex"), 
+                                   selected = "1/4 Mile Hex"),
                        selectInput("colors", "Color Scheme",
                                    rownames(subset(brewer.pal.info, category %in% c("seq", "div"))), 
                                    selected = "Spectral"
@@ -217,18 +224,19 @@ conditional <- function(condition, success){
   }  
   #handle route selections. Add in reset button?
 routes <- eventReactive(input$recalc,{
-  req(input$routes)
+
+#files$baseline_network
+
   if (input$network == "Baseline"){
-    files$baseline_network  %>% 
-      filter( conditional(isTruthy(input$routes), route_short_name %in% input$routes )) %>% 
+route <- files$baseline_network  %>%
+     filter( conditional(isTruthy(input$routes), route_short_name %in% input$routes )) %>%
       sf::st_as_sf()
   } else if(input$network == "Phase 2"){
-    files$proposed_network %>% 
-      filter( conditional(isTruthy(input$routes),route_short_name %in% input$routes ))%>% 
+   route <- files$proposed_network %>%
+      filter( conditional(isTruthy(input$routes),route_short_name %in% input$routes ))%>%
       sf::st_as_sf()
-  } 
-  
-      
+  }
+
   })
 
 epa_hatch_reactive <- reactive({
@@ -324,6 +332,7 @@ observe( {
     files$block_group_centroids %>%
       left_join(metric_data()) %>%
       drop_na(Value) %>% 
+      filter(Value != 0) %>% 
       sf::st_as_sf() #added because R was making this a table not a spatial object
   },  ignoreNULL = FALSE)
 
@@ -384,24 +393,44 @@ output$click_info <- renderTable(metric_data_detail())
                        offset.y = 100,
                        height = 30, 
                        width = 80) %>% 
-      leaflet::addScaleBar(position = "topright")  %>% 
+      leaflet::addScaleBar(position = "topright")   %>% 
       addLayersControl(
         overlayGroups = c( "EPA Overlay", "Labels", "Routes"),
         options = layersControlOptions(collapsed = FALSE)
       )
   })
   
-  # Incremental changes to the map (in this case, replacing the
-  # circles when a new color is chosen) should be performed in
-  # an observer. Each independent set of things that can change
-  # should be managed in its own observer.   # Change Routes #####
-  observeEvent(input$recalc, {
+  # observe(({
+  #   
+  #   
+  #   proxy <- leafletProxy("metric_map")   %>%
+  #     clearShapes() %>% 
+  #     addPolylines(
+  #       data = epa_hatch_reactive(),
+  #       color = "black",
+  #       weight = 0.6,
+  #       group = "EPA Overlay"
+  #     ) #%>%
+  #   # addPolylines(
+  #   #   data = routes(),
+  #   #   color = "black",
+  #   #   weight = 3 ,
+  #   #   group = "Routes",
+  #   #   label = ~route_short_name,
+  #   #   popup = ~paste0("<br>Route: ", route_short_name,
+  #   #                   "<br>Description: ", description  ) )
+  #   
+  #   
+  # } ), label = "test")
+  
+  
+   observeEvent(input$recalc, {
     pal <- colorpal()
     
-   proxy <-  leafletProxy("metric_map") %>%
-      clearShapes() %>%
-     clearGroup("Labels") %>% 
-      addPolygons( data = metric_data_sf() , 
+   proxy <- leafletProxy("metric_map")   %>%
+     clearShapes() %>%
+     clearGroup("Labels") %>%
+      addPolygons( data = metric_data_sf() ,
                    weight = 2, opacity = 1,
                    color = "white",
                    dashArray = "3",
@@ -413,12 +442,12 @@ output$click_info <- renderTable(metric_data_detail())
                                dashArray = "",
                                fillOpacity = 0.7,
                                bringToFront = FALSE) ,   #)#,
-                  label = ~Value,
+                 label = ~paste0(Value,""),
                    labelOptions = labelOptions(
                            style = list("font-weight" = "normal", padding = "3px 8px"),
                            textsize = "15px",
                            direction = "auto"),
-                 fillColor = ~pal(Value), 
+                 fillColor = ~pal(Value),
                  popup = ~paste0(input$metric, ": ", Value,
                                  "<br>Routes in Baseline Network: ", `Routes in Geo Baseline`,
                                  "<br>Routes in Proposed Network: ", `Routes in Geo Proposed`
@@ -437,21 +466,23 @@ output$click_info <- renderTable(metric_data_detail())
         group = "Routes",
         label = ~route_short_name,
         popup = ~paste0("<br>Route: ", route_short_name,
-
                         "<br>Description: ", description  ) ) %>%
      leafem::addStaticLabels(
-                                                       data =metric_data_sf(),
-                                                       label = metric_data_sf()$Value,
-                                                       group = "Labels") %>%
+    # addLabelOnlyMarkers(
+                   data = metric_data_labels(),
+                  # lat = metric_data_labels()$Y,
+                    #lng = metric_data_labels()$X,
+                    label = metric_data_labels()$Value,
+                     group = "Labels") %>%
       addLayersControl(
-        overlayGroups = c( "EPA Overlay", "Labels", "Routes"),
+        overlayGroups = c( "EPA Overlay", "Labels", "Routes"), #
         options = layersControlOptions(collapsed = FALSE)
       ) %>%
 
-      hideGroup(c("EPA Overlay", "Routes"))
-    
+     hideGroup(c("EPA Overlay", "Routes") ) #
+      myVariable <<- proxy
   } ,ignoreNULL = FALSE)
-  
+
 
   
   #recreate legend if needed ####
@@ -469,6 +500,10 @@ output$click_info <- renderTable(metric_data_detail())
       )
     }
   }, ignoreNULL = FALSE)
+   
+   
+
+
   
   #moved the lables in to the main map function. 
   #It seems to resolve the issue of disappearing labels on reinitiation

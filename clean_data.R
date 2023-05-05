@@ -15,7 +15,15 @@ block_groups_raw <- sf::read_sf(here::here("input", "2020_block_groups", "blkgrp
 
 block_group_centroids <- block_groups_raw %>% 
   st_centroid() %>% 
-  st_transform(4326)
+  st_transform(4326) 
+
+centroids <- st_coordinates(block_group_centroids)
+
+
+
+block_group_centroids <- bind_cols(block_group_centroids, centroids)
+
+rm(centroids)
 
 block_groups <- block_groups_raw %>% 
   st_transform(4326) %>% 
