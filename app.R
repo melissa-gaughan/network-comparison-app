@@ -38,6 +38,7 @@ period_choices <- unique(files$network_data$`Analysis Period`)
 metric_choices <- unique(files$network_data$Metric)
 
 network_choices <-  c("Baseline", "Phase 2")
+
                                          
                                          # look at folder, read in folder names, remove.zip from name
 
@@ -148,9 +149,13 @@ ui <- dashboardPage(
                                    min = -100, 
                                    max = 100,
                                    value = c(-100, 100)),
+                       
                        selectInput("geography", "Geography", 
-                                   choices = c("Block Groups", "1/4 Mile Hex", "1/8 Mile Hex"), 
+                                   choices = c("Block Groups" = "block_group",
+                                               "1/4 Mile Hex" = "quarter_mile_hex", 
+                                               "1/8 Mile Hex" = "eigth_mile_hex"), 
                                    selected = "1/4 Mile Hex"),
+                       
                        selectInput("colors", "Color Scheme",
                                    rownames(subset(brewer.pal.info, category %in% c("seq", "div"))), 
                                    selected = "Spectral"
@@ -244,12 +249,14 @@ epa_hatch_reactive <- reactive({
     sf::st_as_sf()
 })
 
+# filter data for map #####
 metric<- reactive({
   if(input$metric %in% c("Percent Change in Capacity" ,"Percent Change in Trips" )){
     files$network_data %>% 
       filter(Metric == input$metric &
                `Analysis Period` == input$period &
-               `Day Type` == input$day_type) %>% 
+               `Day Type` == input$day_type &
+               Geography  == input$geography) %>% 
       drop_na() %>% 
       mutate(Value = Value*100)
   } else {
@@ -270,7 +277,8 @@ observe( {
    data <- files$network_data %>% 
       filter(Metric == input$metric &
                `Analysis Period` == input$period &
-               `Day Type` == input$day_type) %>% 
+               `Day Type` == input$day_type &
+               Geography  == input$geography) %>% 
       drop_na() %>% 
       mutate(Value = Value*100)
   } else {
@@ -299,8 +307,8 @@ observe( {
      network_data <-  files$network_data %>% 
       filter(Metric == input$metric &
                `Analysis Period` == input$period &
-               `Day Type` == input$day_type 
-               ) %>% 
+               `Day Type` == input$day_type &
+               Geography == input$geography ) %>% 
       drop_na()  %>% 
         mutate(Value = Value*100) %>% 
         filter( Value >= input$metric_range[1] &
@@ -320,14 +328,29 @@ observe( {
 
   
   metric_data_sf <- eventReactive(input$recalc,{
+    if(input$geography == "block_group"){
     block_groups <- files$block_groups %>% 
       left_join(metric_data()) %>% 
       drop_na(Value) %>% 
       filter(Value != 0) %>% 
       sf::st_as_sf() #added because R was making this a table not a spatial object
+    } else if (input$geography == "quarter_mile_hex" ){
+      quarter_mile <- files$quarter_mile_hex_grid %>% 
+        left_join(metric_data()) %>% 
+        drop_na(Value) %>% 
+        filter(Value != 0) %>% 
+        sf::st_as_sf()
+      
+    } else if (input$geography == "eigth_mile_hex" ){
+      eigth_mile <- files$eigth_mile_hex_grid %>% 
+        left_join(metric_data()) %>% 
+        drop_na(Value) %>% 
+        filter(Value != 0) %>% 
+        sf::st_as_sf()
+    }
   },  ignoreNULL = FALSE)
   
-  
+  # !!! NEED TO UPDATE ####
   metric_data_labels <- eventReactive(input$recalc,{
     files$block_group_centroids %>%
       left_join(metric_data()) %>%
@@ -352,7 +375,8 @@ metric_data_detail <- eventReactive(input$metric_map_shape_click, {
   files$network_data_details %>% 
     filter(Geoid== input$metric_map_shape_click$id &
              `Analysis Period` == input$period &
-             `Day Type` == input$day_type  ) %>% 
+             `Day Type` == input$day_type &
+             Geography == input$geography) %>% 
     select(Route, 
            `Trips per Rte Baseline`, 
            `Trips per Rte Proposed`, 

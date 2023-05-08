@@ -33,16 +33,23 @@ rm(block_groups_raw)
 
 load(file =here::here( "input","route_and_block_group_equity_data.RDS"))
 
+block_group_need_scores <- block_group_need_scores %>% 
+  mutate(Geoid = as.numeric(geoid))
+
 rm(percent_stops_in_equity_bg_no_geo)
 
 #hex grids
 
+
 eigth_mile_hex_grid <- sf::read_sf(here::here("input", "hex_grids", "eigth_mile_hex_grid.shp")) %>% 
-  mutate(Geoid = as.numeric(rowid))
+  mutate(Geoid = as.numeric(rowid)) %>% 
+  st_transform(4326)
   
 
+
 quarter_mile_hex_grid <- sf::read_sf(here::here("input", "hex_grids", "quarter_mile_hex_grid.shp"))%>% 
-  mutate(Geoid = as.numeric(rowid))
+  mutate(Geoid = as.numeric(rowid))%>% 
+  st_transform(4326)
 
 
 #route shapefiles ####
@@ -64,9 +71,9 @@ baseline_network <- sf::read_sf("input/Lynnwood_Link_Phase_2_Baseline/planner_va
   st_transform(4326)%>% 
   rmapshaper::ms_simplify(keep = .2)
 # block group metrics #####
-network_data <- read_csv(here::here( "input","block_group_trips_and_capacity_summary.csv")) %>% 
-  select(-c(Name:`Acs Year`)) %>% 
-  pivot_longer(cols = !c(Geoid, `Analysis Period`, `Day Type`, `Routes in Geo Baseline`, 
+network_data <- read_csv(here::here( "input","aggregated_trips_and_capacity_summary.csv")) %>% 
+ # select(-c(Name:`Acs Year`)) %>%  #edited file, removed EPA data. line no longer needed
+  pivot_longer(cols = !c(Geoid,  Geography, `Analysis Period`, `Day Type`, `Routes in Geo Baseline`, 
                          `Routes in Geo Proposed`), 
                names_to = "Metric", 
                values_to = "Value")
@@ -100,6 +107,8 @@ object_saver <- function(object_name) {
 }
 
 object_list <- ls()
+
+object_list <- object_list[! object_list %in% c("object_saver")]
 
 map(object_list, object_saver)
 
