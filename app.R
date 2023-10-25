@@ -9,6 +9,7 @@
 #NOTE Need to handle the centroid call outside of the reactive function
 library(shiny)
 library(shinydashboard)
+library(shinyjqui)
 #library(shinydashboardPlus)
 library(tidyverse) 
 library(RColorBrewer)
@@ -18,6 +19,7 @@ library(rsconnect)
 library(here)
 library(leafem)
 # LOAD IN DATA ####
+source("utils.R")
  
 files_list <- list.files(here::here("input", "r-objects"), full.names = T)
 files_short_names <- list.files(here::here("input", "r-objects"), full.names = F)
@@ -44,9 +46,14 @@ network_choices <-  c("Baseline", "Phase 2")
 
 #UI #####
 body <- dashboardBody(
+  
   fluidRow(
   column(width = 6,
-         box(title = "Metric Filters", width = NULL, solidHeader = TRUE,
+         jqui_resizable(
+         box(title = "Metric Filters", 
+             width = NULL, 
+             solidHeader = TRUE,
+             background = "navy",
              collapsible = T,
            selectInput("metric",
                        "Metric",
@@ -65,16 +72,19 @@ body <- dashboardBody(
                        choices = NULL, 
                        multiple = FALSE)
          )
+         )
          ),
  
   column(width = 6,
+         jqui_resizable(
    box( title = "Route Filters",
         width = NULL,
-        solidHeader = TRUE,  
+        solidHeader = TRUE, 
+        background = "navy",
         collapsible = T,
         selectInput("network",
                 "Network",
-                choices = c("Baseline", "Phase 2"), 
+                choices = c("Baseline", "Final Proposal"), 
                 multiple = FALSE, 
                 selected = "Baseline"), 
     
@@ -83,16 +93,26 @@ body <- dashboardBody(
                 choices = NULL, 
                 multiple = TRUE)
    )
-    ) #,  
+    ) 
+   )#,  
   #column(width = 4,
   ),
   
   #  fluidRow(
   column(width = 12,  
-         box(width = NULL, solidHeader = TRUE,
-                      leaflet::leafletOutput("metric_map"),
-                      
-                     tableOutput("click_info" )))##)
+     
+         box(height = "100%",
+             id = "map_container",
+           width = NULL, solidHeader = TRUE,
+           jqui_resizable( leaflet::leafletOutput("metric_map")#, 
+                           #options = list(minWidth = 300)
+                           )),
+    
+           box(width = NULL, solidHeader = TRUE,            
+               jqui_resizable( tableOutput("click_info" ) 
+          #   tableOutput("breaks"),
+            # textOutput("geography")
+             )))
           
         #)
 )
@@ -142,7 +162,7 @@ body <- dashboardBody(
 ui <- dashboardPage(
   dashboardHeader(title = "Network Comparison App"),
  dashboardSidebar(box( title = "Execute Map", width = NULL, 
-                       background= 'black', 
+                       background= 'navy', 
                        solidHeader = FALSE,     collapsible = T,
                        sliderInput("metric_range", 
                                    label = "Filter Data Range", 
@@ -154,19 +174,10 @@ ui <- dashboardPage(
                                    choices = c("Block Groups" = "block_group",
                                                "1/4 Mile Hex" = "quarter_mile_hex", 
                                                "1/8 Mile Hex" = "eigth_mile_hex"), 
-                                   selected = "1/4 Mile Hex"),
-                       
-                       selectInput("colors", "Color Scheme",
-                                   rownames(subset(brewer.pal.info, category %in% c("seq", "div"))), 
-                                   selected = "Spectral"
-                       ), 
-                       selectInput("color_order", "Reverse Colors",
-                                  choices = c("Yes", "No"),
-                                  multiple = FALSE,
-                                  selected = "No"
-                       ),
+                                   selected = "quarter_mile_hex"),
+                     
                        checkboxInput("legend", "Show legend", TRUE),
-                       actionButton("recalc", "Update Map & Filters"))),
+                       actionButton("recalc", "Load Map & Filters"))),
   body
 )
 # SERVER#####
@@ -178,7 +189,7 @@ server <- function(input, output) {
  network<- reactive({
     if (input$network == "baseline"){
       network <-  files$baseline_network 
-    } else if(input$network == "Phase 2"){
+    } else if(input$network == "Final Proposal"){
       network <- files$proposed_network
     } else{
       network <- files$baseline_network
@@ -205,11 +216,12 @@ server <- function(input, output) {
     if (input$day_type == "week"){
        "week" 
     } else if(input$day_type == "weekday"){
-       c("weekday" , "AM", "MID", "PM", "XEV")
+      c("PM")
+      # c("weekday" , "AM", "MID", "PM", "XEV")
     } else if(input$day_type == "saturday"){
-      c("saturday")
-    }  else if(input$day_type == "sunday"){
-      c("sunday")
+      c("MID", "XEV")
+    # }  else if(input$day_type == "sunday"){
+    #   c("sunday")
     } else{
         ""
     }
@@ -236,7 +248,7 @@ routes <- eventReactive(input$recalc,{
 route <- files$baseline_network  %>%
      filter( conditional(isTruthy(input$routes), route_short_name %in% input$routes )) %>%
       sf::st_as_sf()
-  } else if(input$network == "Phase 2"){
+  } else if(input$network == "Final Proposal"){
    route <- files$proposed_network %>%
       filter( conditional(isTruthy(input$routes),route_short_name %in% input$routes ))%>%
       sf::st_as_sf()
@@ -249,30 +261,10 @@ epa_hatch_reactive <- reactive({
     sf::st_as_sf()
 })
 
-# filter data for map #####
-metric<- reactive({
-  if(input$metric %in% c("Percent Change in Capacity" ,"Percent Change in Trips" )){
-    files$network_data %>% 
-      filter(Metric == input$metric &
-               `Analysis Period` == input$period &
-               `Day Type` == input$day_type &
-               Geography  == input$geography) %>% 
-      drop_na() %>% 
-      mutate(Value = Value*100)
-  } else {
-    files$network_data %>% 
-      filter(Metric == input$metric &
-               `Analysis Period` == input$period &
-               `Day Type` == input$day_type) %>% 
-      drop_na() 
-  }
-})
-
-# update routes to correspond to network selected
+#
+# update range of filter for user controls
 observe( {
-  #req(input$network)
-  #freezeReactiveValue(input, "routes")
-  
+ 
   if(input$metric %in% c("Percent Change in Capacity" ,"Percent Change in Trips" )){
    data <- files$network_data %>% 
       filter(Metric == input$metric &
@@ -281,30 +273,35 @@ observe( {
                Geography  == input$geography) %>% 
       drop_na() %>% 
       mutate(Value = Value*100)
+   min_range <- min(data$Value, na.rm = T)
+   max_range <- max(data$Value, na.rm = T)
+   updateSliderInput( inputId = "metric_range",
+                      min =min_range, 
+                      max = max_range, 
+                      value = c(min_range, max_range))
   } else {
   data <-   files$network_data %>% 
       filter(Metric == input$metric &
                `Analysis Period` == input$period &
-               `Day Type` == input$day_type) %>% 
+               `Day Type` == input$day_type &
+               Geography  == input$geography) %>% 
       drop_na() 
-  }
+  
   min_range <- min(data$Value, na.rm = T)
   max_range <- max(data$Value, na.rm = T)
   updateSliderInput( inputId = "metric_range",
                      min =min_range, 
                      max = max_range, 
                      value = c(min_range, max_range))
+  }
+
 })
-#  input <- list()
-# 
-# input$metric <- "Percent Change in Capacity"
-# input$period <- "week"
-# input$day_type <- "week"
-  
+
       #filter data for user input on metrics#####
   metric_data <- eventReactive(input$recalc, {
+    req(input$recalc)
     if(input$metric %in% c("Percent Change in Capacity" ,"Percent Change in Trips" )){
-     network_data <-  files$network_data %>% 
+      filtered_hex_data <-  files$network_data %>% 
       filter(Metric == input$metric &
                `Analysis Period` == input$period &
                `Day Type` == input$day_type &
@@ -313,51 +310,131 @@ observe( {
         mutate(Value = Value*100) %>% 
         filter( Value >= input$metric_range[1] &
                   Value <= input$metric_range[2] )
+     
+     minVal <- min(filtered_hex_data$Value)
+     maxVal <- max(filtered_hex_data$Value)
+     domain <- c(minVal,maxVal)
+     values_df <-  filtered_hex_data$Value
+     
+     center <- as.numeric(0)
+     interval <- ifelse((maxVal - minVal)>10,10,
+                        ifelse((maxVal - minVal)>5,1,0.2))
+     
+     
+     color_bucket <- calculateBucket(min_val = minVal,max_val = maxVal,values_df = values_df,
+                                     max_bin=7,interval=10,interval_options=seq(10,5000,10),
+                                     center=100,floor_at=NULL,ceil_at=NULL)
+     df_pal <- inferColor(color_bucket,
+                          color_below = "#b2182b",
+                          color_above = "#2166ac",
+                          interval=interval,
+                          center=center)
+     
+     
+     filtered_hex_data <- filtered_hex_data %>%
+       mutate(metric_color_label = cut(Value, breaks = color_bucket$breaks,
+                                       labels = color_bucket$breaks_label,
+                                       include.lowest = TRUE)) %>%
+       mutate(metric_color_label = as.factor(metric_color_label)) %>%
+       dplyr::left_join(df_pal) %>%
+       arrange(metric_color_label)
     } else {
-      network_data <- files$network_data %>% 
+      filtered_hex_data <- files$network_data %>% 
         filter(Metric == input$metric &
                `Analysis Period` == input$period &
-               `Day Type` == input$day_type) %>% 
+               `Day Type` == input$day_type &
+                 Geography == input$geography ) %>% 
         drop_na() %>% 
         filter( Value >= input$metric_range[1] &
                   Value <= input$metric_range[2])
+      
+      minVal <- min(filtered_hex_data$Value)
+      maxVal <- max(filtered_hex_data$Value)
+      domain <- c(minVal,maxVal)
+      values_df <- filtered_hex_data$Value
+      
+      center <- as.numeric(0)
+      interval <- ifelse((maxVal - minVal)>10,10,
+                         ifelse((maxVal - minVal)>5,1,0.2))
+      
+      color_bucket <- calculateBucket(min_val = minVal,max_val = maxVal,values_df = values_df,
+                                      max_bin=7,interval=10,interval_options=seq(10,5000,10),
+                                      center=100,floor_at=NULL,ceil_at=NULL)
+      df_pal <- inferColor(color_bucket,
+                           color_below = "#b2182b",
+                           color_above = "#2166ac",
+                           interval=interval,
+                           center=center)
+      
+      
+      filtered_hex_data <- filtered_hex_data %>%
+        mutate(metric_color_label = cut(Value, breaks = color_bucket$breaks,
+                                        labels = color_bucket$breaks_label,
+                                        include.lowest = TRUE)) %>%
+        mutate(metric_color_label = as.factor(metric_color_label)) %>%
+        dplyr::left_join(df_pal) %>%
+        arrange(metric_color_label)
+      
     }
      }, ignoreNULL = FALSE)
-
-
 
   
   metric_data_sf <- eventReactive(input$recalc,{
     if(input$geography == "block_group"){
     block_groups <- files$block_groups %>% 
-      left_join(metric_data()) %>% 
+      left_join(metric_data(), by = "Geoid") %>% 
       drop_na(Value) %>% 
       filter(Value != 0) %>% 
       sf::st_as_sf() #added because R was making this a table not a spatial object
     } else if (input$geography == "quarter_mile_hex" ){
       quarter_mile <- files$quarter_mile_hex_grid %>% 
-        left_join(metric_data()) %>% 
+        left_join(metric_data(), by = "Geoid") %>% 
         drop_na(Value) %>% 
         filter(Value != 0) %>% 
         sf::st_as_sf()
       
     } else if (input$geography == "eigth_mile_hex" ){
       eigth_mile <- files$eigth_mile_hex_grid %>% 
-        left_join(metric_data()) %>% 
+        left_join(metric_data(), by = "Geoid") %>% 
         drop_na(Value) %>% 
         filter(Value != 0) %>% 
         sf::st_as_sf()
     }
   },  ignoreNULL = FALSE)
   
-  # !!! NEED TO UPDATE ####
+# responsive labels for multiple geos
   metric_data_labels <- eventReactive(input$recalc,{
+    
+    
+    if(input$geography == "block_group"){
     files$block_group_centroids %>%
       left_join(metric_data()) %>%
-      drop_na(Value) %>% 
-      filter(Value != 0) %>% 
+      drop_na(Value) %>%
+      filter(Value != 0) %>%
       sf::st_as_sf() #added because R was making this a table not a spatial object
+      } else if (input$geography == "quarter_mile_hex" ){
+        files$quarter_mile_hex_grid %>% 
+          left_join(metric_data()) %>%
+          drop_na(Value) %>%
+          filter(Value != 0) %>%
+          sf::st_as_sf()
+      } else if (input$geography == "eigth_mile_hex" ){
+        files$eigth_mile_hex_grid %>% 
+          left_join(metric_data()) %>%
+          drop_na(Value) %>%
+          filter(Value != 0) %>%
+          sf::st_as_sf()
+      }
   },  ignoreNULL = FALSE)
+  
+  #recalc legend to respond to new breaks
+  
+  reactive_legend <- reactive({
+    label_data <-  metric_data_sf() %>%
+      select(metric_color_label, metric_color_group) %>% 
+      distinct(metric_color_label, metric_color_group) %>% 
+      arrange(metric_color_label)
+  })
 
 rv_location <- reactiveValues(id=NULL,lat=NULL,lng=NULL)
 
@@ -389,17 +466,6 @@ metric_data_detail <- eventReactive(input$metric_map_shape_click, {
 
 output$click_info <- renderTable(metric_data_detail())
 
-  
-  #network selections
-
-  
-  colorpal <- reactive({
-    if(input$color_order == "Yes"){
-    colorBin(input$colors, metric_data_sf()$Value, reverse = T)
-    } else{
-      colorBin(input$colors, metric_data_sf()$Value, reverse = F)
-    }
-  })
 
   # Map reactives ####
   output$metric_map <- renderLeaflet({
@@ -420,40 +486,20 @@ output$click_info <- renderTable(metric_data_detail())
       leaflet::addScaleBar(position = "topright")   %>% 
       addLayersControl(
         overlayGroups = c( "EPA Overlay", "Labels", "Routes"),
-        options = layersControlOptions(collapsed = FALSE)
-      )
+        options = layersControlOptions(collapsed = FALSE), 
+        position = "topleft"
+      ) %>% 
+      hideGroup(c("EPA Overlay", "Routes", "Labels") )
   })
   
-  # observe(({
-  #   
-  #   
-  #   proxy <- leafletProxy("metric_map")   %>%
-  #     clearShapes() %>% 
-  #     addPolylines(
-  #       data = epa_hatch_reactive(),
-  #       color = "black",
-  #       weight = 0.6,
-  #       group = "EPA Overlay"
-  #     ) #%>%
-  #   # addPolylines(
-  #   #   data = routes(),
-  #   #   color = "black",
-  #   #   weight = 3 ,
-  #   #   group = "Routes",
-  #   #   label = ~route_short_name,
-  #   #   popup = ~paste0("<br>Route: ", route_short_name,
-  #   #                   "<br>Description: ", description  ) )
-  #   
-  #   
-  # } ), label = "test")
   
   
    observeEvent(input$recalc, {
-    pal <- colorpal()
-    
+   
    proxy <- leafletProxy("metric_map")   %>%
      clearShapes() %>%
-     clearGroup("Labels") %>%
+     clearGroup("Labels") %>% #"Labels", "EPA Overlay", "Routes"
+    
       addPolygons( data = metric_data_sf() ,
                    weight = 2, opacity = 1,
                    color = "white",
@@ -471,7 +517,7 @@ output$click_info <- renderTable(metric_data_detail())
                            style = list("font-weight" = "normal", padding = "3px 8px"),
                            textsize = "15px",
                            direction = "auto"),
-                 fillColor = ~pal(Value),
+                 fillColor = ~metric_data_sf()$metric_color_group,
                  popup = ~paste0(input$metric, ": ", Value,
                                  "<br>Routes in Baseline Network: ", `Routes in Geo Baseline`,
                                  "<br>Routes in Proposed Network: ", `Routes in Geo Proposed`
@@ -500,11 +546,12 @@ output$click_info <- renderTable(metric_data_detail())
                      group = "Labels") %>%
       addLayersControl(
         overlayGroups = c( "EPA Overlay", "Labels", "Routes"), #
-        options = layersControlOptions(collapsed = FALSE)
-      ) %>%
+        options = layersControlOptions(collapsed = FALSE), 
+        position = "topleft"
+      ) #%>%
 
-     hideGroup(c("EPA Overlay", "Routes") ) #
-      myVariable <<- proxy
+    # hideGroup(c("EPA Overlay", "Routes") ) #
+     # myVariable <<- proxy
   } ,ignoreNULL = FALSE)
 
 
@@ -517,11 +564,12 @@ output$click_info <- renderTable(metric_data_detail())
     # enabled, create a new one.
     proxy %>% clearControls()
     if (input$legend ) {
-      pal <- colorpal()
+      #pal <- colorpal()
       proxy %>% addLegend(position = "topright",
-                          pal = pal, values = ~metric_data_sf()$Value,
-                          title = input$metric
-      )
+                          colors = reactive_legend()$metric_color_group,
+                          labels = reactive_legend()$metric_color_label,
+                          opacity =  0.9,
+                          title = input$metric)
     }
   }, ignoreNULL = FALSE)
    
@@ -529,33 +577,13 @@ output$click_info <- renderTable(metric_data_detail())
 
 
   
-  #moved the lables in to the main map function. 
-  #It seems to resolve the issue of disappearing labels on reinitiation
   
-  # observeEvent(input$recalc,{
-  #   proxy <- leafletProxy("metric_map", data = metric_data_sf())
-  #   
-  #   # Remove any existing legend, and only if the legend is
-  #   # enabled, create a new one.
-  #   proxy %>% clearControls()
-  #   if (input$legend ) {
-  #     pal <- colorpal()
-  #     proxy %>%
-  #   
-  #   leafem::addStaticLabels(map = proxy ,
-  #                           data =metric_data_sf(), 
-  #                           label = metric_data_sf()$Value, 
-  #                           group = "Labels")
-  #   
-  # }, ignoreNULL = FALSE, 
-  # ignoreInit = TRUE)
- 
     
   # NOTES SERVER #####
   
-  output$note <- renderText("This app shows the difference in vehicle trips and vehicle capacity for Lynnwood Link Phase 2.
+  output$note <- renderText("This app shows the difference in vehicle trips and vehicle capacity for the Madison Street Area Final Proposal.
 This tool is for planning purposes only and does not show final data.
-Please contact Melissa Gaughan with questions. Last updated 2022.08.11.")
+Please contact Melissa Gaughan with questions. Last updated 2023.10.25.")
   
  
   #TABLE FUNCTIONS #####  
@@ -599,10 +627,8 @@ Please contact Melissa Gaughan with questions. Last updated 2022.08.11.")
   
   output$note3 <- renderText("note3")
   
+ # output$geography <- renderText(paste0(input$geography))
 
-  
-
-  
  
 }
 
