@@ -306,7 +306,7 @@ observe( {
                `Analysis Period` == input$period &
                `Day Type` == input$day_type &
                Geography == input$geography ) %>% 
-      drop_na()  %>% 
+      drop_na(Value)  %>% 
         mutate(Value = Value*100) %>% 
         filter( Value >= input$metric_range[1] &
                   Value <= input$metric_range[2] )
@@ -344,7 +344,7 @@ observe( {
                `Analysis Period` == input$period &
                `Day Type` == input$day_type &
                  Geography == input$geography ) %>% 
-        drop_na() %>% 
+        drop_na(Value) %>% 
         filter( Value >= input$metric_range[1] &
                   Value <= input$metric_range[2])
       
@@ -383,21 +383,21 @@ observe( {
     if(input$geography == "block_group"){
     block_groups <- files$block_groups %>% 
       left_join(metric_data(), by = "Geoid") %>% 
-      drop_na(Value) %>% 
-      filter(Value != 0) %>% 
+     drop_na(Value) %>% 
+     # filter(Value != 0) %>% 
       sf::st_as_sf() #added because R was making this a table not a spatial object
     } else if (input$geography == "quarter_mile_hex" ){
       quarter_mile <- files$quarter_mile_hex_grid %>% 
         left_join(metric_data(), by = "Geoid") %>% 
-        drop_na(Value) %>% 
-        filter(Value != 0) %>% 
+       drop_na(Value) %>% 
+      #  filter(Value != 0) %>% 
         sf::st_as_sf()
       
     } else if (input$geography == "eigth_mile_hex" ){
       eigth_mile <- files$eigth_mile_hex_grid %>% 
         left_join(metric_data(), by = "Geoid") %>% 
-        drop_na(Value) %>% 
-        filter(Value != 0) %>% 
+      drop_na(Value) %>% 
+      #  filter(Value != 0) %>% 
         sf::st_as_sf()
     }
   },  ignoreNULL = FALSE)

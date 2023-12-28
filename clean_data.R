@@ -5,7 +5,7 @@ library(tidyverse)
 library(sf)
 
 library(here)
-project_name <- "MSA_final"
+project_name <- "msa-revised-final"
 # LOAD IN DATA ####
 block_groups_raw <- sf::read_sf(here::here("input", "2020_block_groups", "blkgrp20_shore.shp")) %>% 
   mutate(Geoid = as.numeric(GEO_ID_GRP))
@@ -54,7 +54,7 @@ quarter_mile_hex_grid <- sf::read_sf(here::here("input", "hex_grids", "quarter_m
 
 
 #route shapefiles ####
-proposed_network <- sf::read_sf("input/MSA_final_proposed/planner_var_shape.shp") %>% 
+proposed_network <- sf::read_sf("input/msa-revised-final_proposed/planner_var_shape.shp") %>% 
   rename(route_short_name = VAR_ROUTE, 
          variant = VAR_IDENT, 
          direction = VAR_DIREC, 
@@ -63,7 +63,7 @@ proposed_network <- sf::read_sf("input/MSA_final_proposed/planner_var_shape.shp"
   st_transform(4326) %>% 
   rmapshaper::ms_simplify(keep = .2)
 
-baseline_network <- sf::read_sf("input/MSA_final_baseline/planner_var_shape.shp") %>% 
+baseline_network <- sf::read_sf("input/msa-revised-final_baseline/planner_var_shape.shp") %>% 
   rename(route_short_name = VAR_ROUTE, 
          variant = VAR_IDENT, 
          direction = VAR_DIREC, 
@@ -109,7 +109,7 @@ object_saver <- function(object_name) {
 
 object_list <- ls()
 
-object_list <- object_list[! object_list %in% c("object_saver")]
+object_list <- object_list[! object_list %in% c("object_saver", "project_name")]
 
 map(object_list, object_saver)
 
